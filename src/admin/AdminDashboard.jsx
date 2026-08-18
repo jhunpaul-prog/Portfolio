@@ -14,7 +14,6 @@ import { signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import {
   LogOut,
-  // eslint-disable-next-line no-unused-vars
   Save,
   Plus,
   Trash2,
@@ -115,7 +114,7 @@ export default function AdminDashboard() {
   const [fileNameDisplay, setFileNameDisplay] = useState("");
 
   useEffect(() => {
-    // Load Profile & Section Arrangement
+    // 1. Load Profile & Section Arrangement
     async function loadConfig() {
       const snap = await getDoc(doc(db, "content", "profile"));
       if (snap.exists()) setProfile(snap.data());
@@ -127,31 +126,43 @@ export default function AdminDashboard() {
     }
     loadConfig();
 
+    // 2. Real-time highlights sync with strict numeric ordering
     const unsubHighlights = onSnapshot(collection(db, "highlights"), (snap) => {
-      const list = snap.docs.map((d) => ({ id: d.id, order: 0, ...d.data() }));
-      list.sort((a, b) => (a.order || 0) - (b.order || 0));
+      const list = snap.docs.map((d, index) => ({
+        id: d.id,
+        order: d.data().order !== undefined ? Number(d.data().order) : index,
+        ...d.data(),
+      }));
+      list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       setHighlights(list);
     });
 
+    // 3. Real-time projects sync
     const unsubProjects = onSnapshot(collection(db, "projects"), (snap) => {
-      const list = snap.docs.map((d) => ({ id: d.id, order: 0, ...d.data() }));
-      list.sort((a, b) => (a.order || 0) - (b.order || 0));
+      const list = snap.docs.map((d, index) => ({
+        id: d.id,
+        order: d.data().order !== undefined ? Number(d.data().order) : index,
+        ...d.data(),
+      }));
+      list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       setProjects(list);
     });
 
+    // 4. Real-time experiences sync
     const unsubExperiences = onSnapshot(
       collection(db, "experiences"),
       (snap) => {
-        const list = snap.docs.map((d) => ({
+        const list = snap.docs.map((d, index) => ({
           id: d.id,
-          order: 0,
+          order: d.data().order !== undefined ? Number(d.data().order) : index,
           ...d.data(),
         }));
-        list.sort((a, b) => (a.order || 0) - (b.order || 0));
+        list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
         setExperiences(list);
       },
     );
 
+    // 5. Real-time CVs sync
     const unsubResumes = onSnapshot(collection(db, "resumes"), (snap) =>
       setResumes(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
     );
@@ -164,31 +175,35 @@ export default function AdminDashboard() {
     };
   }, []);
 
-  // --- REORDERING LOGIC HELPER ---
+  // --- REORDERING LOGIC: Re-indexes all items to sequential order (0, 1, 2, ...) ---
   const handleMoveItem = async (collectionName, list, index, direction) => {
     const targetIndex = index + direction;
     if (targetIndex < 0 || targetIndex >= list.length) return;
 
-    const currentItem = list[index];
-    const targetItem = list[targetIndex];
+    // 1. Clone list and swap positions
+    const reordered = [...list];
+    const [movedItem] = reordered.splice(index, 1);
+    reordered.splice(targetIndex, 0, movedItem);
 
-    const currentOrder =
-      currentItem.order !== undefined ? currentItem.order : index;
-    const targetOrder =
-      targetItem.order !== undefined ? targetItem.order : targetIndex;
+    // 2. Optimistic UI update
+    if (collectionName === "highlights") setHighlights(reordered);
+    if (collectionName === "projects") setProjects(reordered);
+    if (collectionName === "experiences") setExperiences(reordered);
 
-    // Swap order numbers in Firestore
-    await updateDoc(doc(db, collectionName, currentItem.id), {
-      order: targetOrder,
-    });
-    await updateDoc(doc(db, collectionName, targetItem.id), {
-      order: currentOrder,
-    });
-
-    showFeedback("Display arrangement updated!");
+    // 3. Persist new indices directly to Firestore
+    try {
+      await Promise.all(
+        reordered.map((item, i) =>
+          updateDoc(doc(db, collectionName, item.id), { order: i }),
+        ),
+      );
+      showFeedback("Display arrangement updated!");
+    } catch (err) {
+      showFeedback("Error saving order: " + err.message);
+    }
   };
 
-  // --- SECTIONS REORDERING ---
+  // --- SECTIONS REORDERING & VISIBILITY ---
   const handleMoveSection = async (index, direction) => {
     const targetIndex = index + direction;
     if (targetIndex < 0 || targetIndex >= sectionOrder.length) return;
@@ -198,7 +213,11 @@ export default function AdminDashboard() {
     newSections.splice(targetIndex, 0, moved);
 
     setSectionOrder(newSections);
-    await setDoc(doc(db, "content", "sections"), { order: newSections });
+    await setDoc(
+      doc(db, "content", "sections"),
+      { order: newSections },
+      { merge: true },
+    );
     showFeedback("Section order saved!");
   };
 
@@ -206,7 +225,11 @@ export default function AdminDashboard() {
     const newSections = [...sectionOrder];
     newSections[index].visible = !newSections[index].visible;
     setSectionOrder(newSections);
-    await setDoc(doc(db, "content", "sections"), { order: newSections });
+    await setDoc(
+      doc(db, "content", "sections"),
+      { order: newSections },
+      { merge: true },
+    );
     showFeedback("Section visibility updated!");
   };
 
@@ -228,9 +251,11 @@ export default function AdminDashboard() {
       title: highlightForm.title,
       icon: highlightForm.icon || "Code2",
       order: editingHighlightId
-        ? highlights.find((h) => h.id === editingHighlightId)?.order || 0
+        ? (highlights.find((h) => h.id === editingHighlightId)?.order ??
+          highlights.length)
         : highlights.length,
     };
+
     if (editingHighlightId) {
       await updateDoc(doc(db, "highlights", editingHighlightId), payload);
       showFeedback("Highlight updated!");
@@ -271,9 +296,11 @@ export default function AdminDashboard() {
       githubUrl: projectForm.githubUrl,
       liveUrl: projectForm.liveUrl,
       order: editingProjectId
-        ? projects.find((p) => p.id === editingProjectId)?.order || 0
+        ? (projects.find((p) => p.id === editingProjectId)?.order ??
+          projects.length)
         : projects.length,
     };
+
     if (editingProjectId) {
       await updateDoc(doc(db, "projects", editingProjectId), payload);
       showFeedback("Project updated!");
@@ -316,9 +343,11 @@ export default function AdminDashboard() {
               .filter(Boolean)
           : expForm.skills,
       order: editingExpId
-        ? experiences.find((x) => x.id === editingExpId)?.order || 0
+        ? (experiences.find((x) => x.id === editingExpId)?.order ??
+          experiences.length)
         : experiences.length,
     };
+
     if (editingExpId) {
       await updateDoc(doc(db, "experiences", editingExpId), payload);
       showFeedback("Experience updated!");
@@ -376,8 +405,9 @@ export default function AdminDashboard() {
   };
 
   const handleSetActiveResume = async (id) => {
-    for (const r of resumes)
+    for (const r of resumes) {
       await updateDoc(doc(db, "resumes", r.id), { isActive: r.id === id });
+    }
     showFeedback("Active CV updated!");
   };
 
@@ -401,7 +431,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-surface text-slate-200 p-6 md:p-12 space-y-12 max-w-5xl mx-auto">
-      {/* Header */}
+      {/* Top Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-cardBorder pb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">
@@ -433,7 +463,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 1. PROFILE BIO DETAILS */}
+      {/* 1. PROFILE DETAILS */}
       <div className="p-6 md:p-8 rounded-2xl bg-card border border-cardBorder space-y-4">
         <h2 className="text-lg font-bold text-white flex items-center gap-2">
           <Edit3 className="w-5 h-5 text-brand" /> Edit Profile
@@ -506,14 +536,22 @@ export default function AdminDashboard() {
           <button
             type="button"
             onClick={() => setCvInputMode("upload")}
-            className={`px-3 py-1 text-xs font-bold rounded ${cvInputMode === "upload" ? "bg-brand text-slate-950" : "bg-surface text-slate-400"}`}
+            className={`px-3 py-1 text-xs font-bold rounded ${
+              cvInputMode === "upload"
+                ? "bg-brand text-slate-950"
+                : "bg-surface text-slate-400"
+            }`}
           >
             Upload PDF
           </button>
           <button
             type="button"
             onClick={() => setCvInputMode("url")}
-            className={`px-3 py-1 text-xs font-bold rounded ${cvInputMode === "url" ? "bg-brand text-slate-950" : "bg-surface text-slate-400"}`}
+            className={`px-3 py-1 text-xs font-bold rounded ${
+              cvInputMode === "url"
+                ? "bg-brand text-slate-950"
+                : "bg-surface text-slate-400"
+            }`}
           >
             Direct URL
           </button>
@@ -594,7 +632,7 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/*3. SECTIONS ORDER & ARRANGEMENT */}
+      {/* 3. SECTIONS ORDER & VISIBILITY */}
       <div className="p-6 md:p-8 rounded-2xl bg-card border border-cardBorder space-y-4">
         <h2 className="text-lg font-bold text-white flex items-center gap-2">
           <Sliders className="w-5 h-5 text-brand" /> Page Sections Order &
@@ -615,7 +653,9 @@ export default function AdminDashboard() {
                   {idx + 1}
                 </span>
                 <span
-                  className={`text-sm font-semibold ${sec.visible ? "text-white" : "text-slate-500 line-through"}`}
+                  className={`text-sm font-semibold ${
+                    sec.visible ? "text-white" : "text-slate-500 line-through"
+                  }`}
                 >
                   {sec.label}
                 </span>
@@ -716,7 +756,11 @@ export default function AdminDashboard() {
               onClick={() =>
                 setHighlightForm({ ...highlightForm, iconType: "preset" })
               }
-              className={`px-3 py-1 rounded text-xs font-bold ${highlightForm.iconType === "preset" ? "bg-brand text-slate-950" : "bg-surface text-slate-400"}`}
+              className={`px-3 py-1 rounded text-xs font-bold ${
+                highlightForm.iconType === "preset"
+                  ? "bg-brand text-slate-950"
+                  : "bg-surface text-slate-400"
+              }`}
             >
               Preset Icon
             </button>
@@ -725,7 +769,11 @@ export default function AdminDashboard() {
               onClick={() =>
                 setHighlightForm({ ...highlightForm, iconType: "upload" })
               }
-              className={`px-3 py-1 rounded text-xs font-bold ${highlightForm.iconType === "upload" ? "bg-brand text-slate-950" : "bg-surface text-slate-400"}`}
+              className={`px-3 py-1 rounded text-xs font-bold ${
+                highlightForm.iconType === "upload"
+                  ? "bg-brand text-slate-950"
+                  : "bg-surface text-slate-400"
+              }`}
             >
               Upload Custom SVG/PNG
             </button>
@@ -739,7 +787,11 @@ export default function AdminDashboard() {
                   onClick={() =>
                     setHighlightForm({ ...highlightForm, icon: i })
                   }
-                  className={`p-2 rounded-lg border text-xs flex items-center gap-1.5 ${highlightForm.icon === i ? "border-brand bg-brand/10" : "border-cardBorder"}`}
+                  className={`p-2 rounded-lg border text-xs flex items-center gap-1.5 ${
+                    highlightForm.icon === i
+                      ? "border-brand bg-brand/10"
+                      : "border-cardBorder"
+                  }`}
                 >
                   <DynamicIcon icon={i} className="w-3.5 h-3.5" /> {i}
                 </button>
@@ -769,9 +821,12 @@ export default function AdminDashboard() {
           {highlights.map((item, idx) => (
             <div
               key={item.id}
-              className="p-3 rounded-xl bg-surface border border-cardBorder flex flex-col justify-between gap-3"
+              className="p-3.5 rounded-xl bg-surface border border-cardBorder flex flex-col justify-between gap-3"
             >
               <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-5 h-5 rounded-full bg-slate-800 text-brand text-[10px] font-bold flex items-center justify-center font-mono flex-shrink-0">
+                  {idx + 1}
+                </span>
                 <div className="p-1.5 rounded-lg bg-brand/10 text-brand flex-shrink-0">
                   <DynamicIcon icon={item.icon} className="w-4 h-4" />
                 </div>
@@ -788,21 +843,23 @@ export default function AdminDashboard() {
               <div className="flex items-center justify-between border-t border-cardBorder/60 pt-2">
                 <div className="flex items-center gap-1">
                   <button
+                    type="button"
                     disabled={idx === 0}
                     onClick={() =>
                       handleMoveItem("highlights", highlights, idx, -1)
                     }
-                    className="p-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 text-[10px]"
+                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 text-xs font-bold transition"
                     title="Move Left"
                   >
                     ←
                   </button>
                   <button
+                    type="button"
                     disabled={idx === highlights.length - 1}
                     onClick={() =>
                       handleMoveItem("highlights", highlights, idx, 1)
                     }
-                    className="p-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 text-[10px]"
+                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 text-xs font-bold transition"
                     title="Move Right"
                   >
                     →
@@ -810,6 +867,7 @@ export default function AdminDashboard() {
                 </div>
                 <div className="flex items-center gap-1">
                   <button
+                    type="button"
                     onClick={() => {
                       setEditingHighlightId(item.id);
                       setHighlightForm({
@@ -819,15 +877,16 @@ export default function AdminDashboard() {
                         icon: item.icon,
                       });
                     }}
-                    className="p-1 rounded bg-slate-800 text-slate-300"
+                    className="p-1.5 rounded bg-slate-800 text-slate-300 hover:text-white"
                   >
-                    <Edit3 className="w-3 h-3" />
+                    <Edit3 className="w-3.5 h-3.5" />
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleDeleteHighlight(item.id)}
-                    className="p-1 rounded bg-rose-500/10 text-rose-400"
+                    className="p-1.5 rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -932,7 +991,6 @@ export default function AdminDashboard() {
           </button>
         </form>
 
-        {/* Existing Projects with Move Up/Down Controls */}
         <div className="divide-y divide-cardBorder pt-2">
           {projects.map((p, idx) => (
             <div
@@ -953,6 +1011,7 @@ export default function AdminDashboard() {
 
               <div className="flex items-center gap-1.5">
                 <button
+                  type="button"
                   disabled={idx === 0}
                   onClick={() => handleMoveItem("projects", projects, idx, -1)}
                   className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 transition"
@@ -961,6 +1020,7 @@ export default function AdminDashboard() {
                   <ArrowUp className="w-3.5 h-3.5" />
                 </button>
                 <button
+                  type="button"
                   disabled={idx === projects.length - 1}
                   onClick={() => handleMoveItem("projects", projects, idx, 1)}
                   className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 transition"
@@ -969,6 +1029,7 @@ export default function AdminDashboard() {
                   <ArrowDown className="w-3.5 h-3.5" />
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     setEditingProjectId(p.id);
                     setProjectForm({
@@ -987,6 +1048,7 @@ export default function AdminDashboard() {
                   <Edit3 className="w-3.5 h-3.5" />
                 </button>
                 <button
+                  type="button"
                   onClick={() => handleDeleteProject(p.id)}
                   className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400"
                 >
@@ -1088,7 +1150,6 @@ export default function AdminDashboard() {
           </button>
         </form>
 
-        {/* Existing Experiences with Move Up/Down Controls */}
         <div className="divide-y divide-cardBorder pt-2">
           {experiences.map((exp, idx) => (
             <div
@@ -1109,6 +1170,7 @@ export default function AdminDashboard() {
 
               <div className="flex items-center gap-1.5">
                 <button
+                  type="button"
                   disabled={idx === 0}
                   onClick={() =>
                     handleMoveItem("experiences", experiences, idx, -1)
@@ -1119,6 +1181,7 @@ export default function AdminDashboard() {
                   <ArrowUp className="w-3.5 h-3.5" />
                 </button>
                 <button
+                  type="button"
                   disabled={idx === experiences.length - 1}
                   onClick={() =>
                     handleMoveItem("experiences", experiences, idx, 1)
@@ -1129,6 +1192,7 @@ export default function AdminDashboard() {
                   <ArrowDown className="w-3.5 h-3.5" />
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     setEditingExpId(exp.id);
                     setExpForm({
@@ -1147,6 +1211,7 @@ export default function AdminDashboard() {
                   <Edit3 className="w-3.5 h-3.5" />
                 </button>
                 <button
+                  type="button"
                   onClick={() => handleDeleteExp(exp.id)}
                   className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400"
                 >

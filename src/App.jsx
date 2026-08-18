@@ -21,7 +21,6 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [footerActiveContact, setFooterActiveContact] = useState(null);
 
-  // Default section sequence
   const [sectionOrder, setSectionOrder] = useState([
     { id: "projects", label: "Featured Projects", visible: true },
     { id: "experience", label: "Work Experience", visible: true },
@@ -52,15 +51,23 @@ export default function App() {
 
     // 3. Fetch Highlights (Sorted by order)
     const unsubHighlights = onSnapshot(collection(db, "highlights"), (snap) => {
-      const list = snap.docs.map((d) => ({ id: d.id, order: 0, ...d.data() }));
-      list.sort((a, b) => (a.order || 0) - (b.order || 0));
+      const list = snap.docs.map((d, index) => ({
+        id: d.id,
+        order: d.data().order !== undefined ? Number(d.data().order) : index,
+        ...d.data(),
+      }));
+      list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       setHighlights(list);
     });
 
     // 4. Fetch Projects (Sorted by order)
     const unsubProjects = onSnapshot(collection(db, "projects"), (snap) => {
-      const list = snap.docs.map((d) => ({ id: d.id, order: 0, ...d.data() }));
-      list.sort((a, b) => (a.order || 0) - (b.order || 0));
+      const list = snap.docs.map((d, index) => ({
+        id: d.id,
+        order: d.data().order !== undefined ? Number(d.data().order) : index,
+        ...d.data(),
+      }));
+      list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       setProjects(list);
     });
 
@@ -68,12 +75,12 @@ export default function App() {
     const unsubExperiences = onSnapshot(
       collection(db, "experiences"),
       (snap) => {
-        const list = snap.docs.map((d) => ({
+        const list = snap.docs.map((d, index) => ({
           id: d.id,
-          order: 0,
+          order: d.data().order !== undefined ? Number(d.data().order) : index,
           ...d.data(),
         }));
-        list.sort((a, b) => (a.order || 0) - (b.order || 0));
+        list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
         setExperiences(list);
       },
     );
@@ -107,7 +114,6 @@ export default function App() {
     };
   }, []);
 
-  // Section Render Map
   const renderSection = (sectionId) => {
     switch (sectionId) {
       case "projects":
@@ -205,7 +211,6 @@ export default function App() {
       <Navbar onOpenResume={() => setIsResumeOpen(true)} />
 
       <main className="max-w-6xl mx-auto px-6 space-y-24">
-        {/* Fixed Hero Intro */}
         <Hero
           profileData={profile}
           highlights={highlights}
@@ -215,11 +220,9 @@ export default function App() {
           loading={loading}
         />
 
-        {/* Dynamically Ordered Page Sections */}
         {sectionOrder.filter((s) => s.visible).map((s) => renderSection(s.id))}
       </main>
 
-      {/* CV Modal */}
       <ResumeModal
         isOpen={isResumeOpen}
         onClose={() => setIsResumeOpen(false)}
