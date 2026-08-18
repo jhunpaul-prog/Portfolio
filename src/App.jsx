@@ -230,10 +230,7 @@ export default function App() {
       />
 
       <footer className="border-t border-cardBorder py-8 mt-24 text-center text-xs text-slate-500 relative z-10 space-y-2">
-        <p>
-          © 2026 {profile?.name || "Developer"}. Built with React, Firebase, and
-          Framer Motion.
-        </p>
+        <p>© 2026 {profile?.name || "Developer"}</p>
         <div className="inline-flex items-center gap-1.5 text-slate-400">
           <Users className="w-3.5 h-3.5 text-brand" /> Total Site Views:{" "}
           <span className="text-slate-200 font-bold">{totalViews}</span>
