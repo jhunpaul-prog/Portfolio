@@ -128,7 +128,7 @@ export default function Hero({
 
             <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-brand/10 text-brand border border-brand/30">
               <Users className="w-3.5 h-3.5" />
-              <span>{totalViews} Visitors</span>
+              <span>{totalViews} Visit this portfolio</span>
             </div>
           </motion.div>
 
